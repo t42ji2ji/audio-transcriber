@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m audio_transcriber strip-srt:*)",
+      "Bash(yt-dlp --version:*)",
+      "Bash(yt-dlp:*)"
+    ]
+  }
+}

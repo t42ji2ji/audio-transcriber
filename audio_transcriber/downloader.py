@@ -70,31 +70,50 @@ def download_audio(
     }
     
     console.print(f"[bold blue]⬇️  Downloading audio from:[/] {url}")
-    
+
+    # Track the actual downloaded file
+    downloaded_file = None
+
+    def postprocessor_hook(d):
+        nonlocal downloaded_file
+        if d['status'] == 'finished':
+            # This gives us the final output path after postprocessing
+            downloaded_file = d.get('info_dict', {}).get('filepath')
+
+    ydl_opts['postprocessor_hooks'] = [postprocessor_hook]
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             # Extract info first to get the title
             info = ydl.extract_info(url, download=False)
-            title = sanitize_filename(info.get('title', 'audio'))
-            
+
             console.print(f"[dim]Title: {info.get('title', 'Unknown')}[/]")
             console.print(f"[dim]Duration: {info.get('duration', 0) // 60}:{info.get('duration', 0) % 60:02d}[/]")
-            
-            # Download
+
+            # Download and get the actual filename
             ydl.download([url])
-            
-            # Find the downloaded file
+
+            # Get the expected output path from yt-dlp
+            info = ydl.extract_info(url, download=False)
+            base_path = ydl.prepare_filename(info)
+
+            # Replace extension with the converted format
             ext = 'wav' if not keep_original else 'mp3'
-            output_path = os.path.join(output_dir, f"{title}.{ext}")
-            
-            # Handle case where filename might differ
+            output_path = str(Path(base_path).with_suffix(f'.{ext}'))
+
+            # Verify the file exists
             if not os.path.exists(output_path):
-                # Try to find any audio file in the output directory
-                for file in os.listdir(output_dir):
-                    if file.endswith(f'.{ext}'):
-                        output_path = os.path.join(output_dir, file)
-                        break
-            
+                # Fallback: find the most recently created audio file
+                audio_files = [
+                    os.path.join(output_dir, f)
+                    for f in os.listdir(output_dir)
+                    if f.endswith(f'.{ext}')
+                ]
+                if audio_files:
+                    output_path = max(audio_files, key=os.path.getctime)
+                else:
+                    raise FileNotFoundError(f"Could not find downloaded audio file in {output_dir}")
+
             console.print(f"[bold green]✅ Downloaded:[/] {output_path}")
             return output_path
             

@@ -1,41 +1,83 @@
-"""Transcription module using faster-whisper."""
+"""Transcription module using faster-whisper or mlx-whisper."""
 
 import os
+import platform
+import time
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 
-from faster_whisper import WhisperModel
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 console = Console()
 
-# Available model sizes
-MODEL_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3']
+# Detect if running on Apple Silicon
+def is_apple_silicon() -> bool:
+    return platform.system() == 'Darwin' and platform.machine() == 'arm64'
+
+# Check if mlx-whisper is available
+def has_mlx_whisper() -> bool:
+    try:
+        import mlx_whisper
+        return True
+    except ImportError:
+        return False
+
+# Determine which backend to use
+USE_MLX = is_apple_silicon() and has_mlx_whisper()
+
+if not USE_MLX:
+    from faster_whisper import WhisperModel
+
+# Available model sizes (ordered by speed, fastest first)
+MODEL_SIZES = [
+    'tiny',
+    'base',
+    'small',
+    'medium',
+    'large-v3-turbo',  # 6x faster than large-v3, recommended
+    'distil-large-v3', # 6x faster than large-v3, <1% WER difference
+]
+
+# MLX model mapping (model_size -> HuggingFace repo)
+MLX_MODEL_MAP = {
+    'tiny': 'mlx-community/whisper-tiny',
+    'base': 'mlx-community/whisper-base',
+    'small': 'mlx-community/whisper-small',
+    'medium': 'mlx-community/whisper-medium',
+    'large-v3-turbo': 'mlx-community/whisper-large-v3-turbo',
+    'distil-large-v3': 'mlx-community/distil-whisper-large-v3',
+}
 
 
 def load_model(
-    model_size: str = 'medium',
+    model_size: str = 'large-v3-turbo',
     device: str = 'auto',
     compute_type: str = 'auto'
-) -> WhisperModel:
+) -> Union['WhisperModel', None]:
     """
-    Load the Whisper model.
-    
+    Load the Whisper model (faster-whisper only, mlx-whisper doesn't need preloading).
+
     Args:
-        model_size: Model size (tiny, base, small, medium, large-v3)
-        device: Device to use (auto, cpu, cuda)
-        compute_type: Compute type (auto, int8, float16, float32)
-    
+        model_size: Model size (tiny, base, small, medium, large-v3-turbo, distil-large-v3)
+        device: Device to use (auto, cpu, cuda) - ignored for mlx
+        compute_type: Compute type (auto, int8, float16, float32) - ignored for mlx
+
     Returns:
-        Loaded WhisperModel
+        Loaded WhisperModel (or None for mlx-whisper)
     """
     if model_size not in MODEL_SIZES:
-        console.print(f"[yellow]⚠️  Unknown model size '{model_size}', using 'medium'[/]")
-        model_size = 'medium'
-    
+        console.print(f"[yellow]⚠️  Unknown model size '{model_size}', using 'large-v3-turbo'[/]")
+        model_size = 'large-v3-turbo'
+
+    if USE_MLX:
+        # mlx-whisper loads model during transcribe, no preloading needed
+        console.print(f"[bold blue]🔄 Using MLX backend:[/] {model_size}")
+        console.print(f"[dim]Backend: mlx-whisper (Apple Silicon optimized)[/]")
+        return None
+
     console.print(f"[bold blue]🔄 Loading model:[/] {model_size}")
-    
+
     # Auto-detect best settings
     if device == 'auto':
         try:
@@ -43,41 +85,43 @@ def load_model(
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         except ImportError:
             device = 'cpu'
-    
+
     if compute_type == 'auto':
         compute_type = 'int8' if device == 'cpu' else 'float16'
-    
-    console.print(f"[dim]Device: {device}, Compute type: {compute_type}[/]")
-    
+
+    console.print(f"[dim]Backend: faster-whisper, Device: {device}, Compute type: {compute_type}[/]")
+
     model = WhisperModel(
         model_size,
         device=device,
         compute_type=compute_type
     )
-    
+
     console.print(f"[bold green]✅ Model loaded[/]")
     return model
 
 
 def transcribe(
     audio_path: str,
-    model: Optional[WhisperModel] = None,
-    model_size: str = 'medium',
+    model: Optional[Any] = None,
+    model_size: str = 'large-v3-turbo',
     language: Optional[str] = None,
     translate: bool = False,
-    word_timestamps: bool = False
+    word_timestamps: bool = False,
+    beam_size: int = 5,
 ) -> Dict[str, Any]:
     """
     Transcribe an audio file.
-    
+
     Args:
         audio_path: Path to the audio file
-        model: Pre-loaded WhisperModel (optional)
+        model: Pre-loaded WhisperModel (optional, ignored for mlx-whisper)
         model_size: Model size if model not provided
         language: Source language (None for auto-detection)
         translate: If True, translate to English
         word_timestamps: If True, include word-level timestamps
-    
+        beam_size: Beam size for decoding (1=fastest, 5=default, higher=more accurate)
+
     Returns:
         Dictionary with transcription results:
         {
@@ -88,34 +132,149 @@ def transcribe(
     """
     if not os.path.exists(audio_path):
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
-    
-    # Load model if not provided
-    if model is None:
-        model = load_model(model_size)
-    
+
+    if model_size not in MODEL_SIZES:
+        console.print(f"[yellow]⚠️  Unknown model size '{model_size}', using 'large-v3-turbo'[/]")
+        model_size = 'large-v3-turbo'
+
     console.print(f"[bold blue]🎤 Transcribing:[/] {audio_path}")
-    
+
+    if USE_MLX:
+        return _transcribe_mlx(
+            audio_path=audio_path,
+            model_size=model_size,
+            language=language,
+            translate=translate,
+            word_timestamps=word_timestamps,
+        )
+    else:
+        return _transcribe_faster_whisper(
+            audio_path=audio_path,
+            model=model,
+            model_size=model_size,
+            language=language,
+            translate=translate,
+            word_timestamps=word_timestamps,
+            beam_size=beam_size,
+        )
+
+
+def _transcribe_mlx(
+    audio_path: str,
+    model_size: str,
+    language: Optional[str],
+    translate: bool,
+    word_timestamps: bool,
+) -> Dict[str, Any]:
+    """Transcribe using mlx-whisper backend."""
+    import mlx_whisper
+
+    mlx_model = MLX_MODEL_MAP.get(model_size, MLX_MODEL_MAP['large-v3-turbo'])
+    console.print(f"[dim]Backend: mlx-whisper, Model: {mlx_model}[/]")
+
     task = 'translate' if translate else 'transcribe'
-    
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console
-    ) as progress:
-        progress.add_task(description="Processing audio...", total=None)
-        
-        segments, info = model.transcribe(
+
+    start_time = time.time()
+    with console.status("[bold blue]Transcribing with MLX...[/]"):
+        result = mlx_whisper.transcribe(
             audio_path,
+            path_or_hf_repo=mlx_model,
             language=language,
             task=task,
             word_timestamps=word_timestamps,
-            vad_filter=True,  # Filter out silence
         )
-        
-        # Convert generator to list
-        segment_list = []
-        full_text = []
-        
+    elapsed_time = time.time() - start_time
+
+    # Normalize result format
+    segments = result.get('segments', [])
+    segment_list = []
+    for i, seg in enumerate(segments):
+        segment_dict = {
+            'id': i,
+            'start': seg['start'],
+            'end': seg['end'],
+            'text': seg['text'].strip(),
+        }
+        if word_timestamps and 'words' in seg:
+            segment_dict['words'] = [
+                {'word': w['word'], 'start': w['start'], 'end': w['end']}
+                for w in seg['words']
+            ]
+        segment_list.append(segment_dict)
+
+    # Calculate duration from last segment
+    duration = segment_list[-1]['end'] if segment_list else 0.0
+    detected_language = result.get('language', 'unknown')
+
+    # Calculate speed ratio (audio duration / processing time)
+    speed_ratio = duration / elapsed_time if elapsed_time > 0 else 0
+
+    output = {
+        'text': result.get('text', ''),
+        'segments': segment_list,
+        'language': detected_language,
+        'language_probability': 1.0,  # mlx-whisper doesn't provide this
+        'duration': duration,
+        'elapsed_time': elapsed_time,
+        'speed_ratio': speed_ratio,
+    }
+
+    console.print(f"[bold green]✅ Transcription complete[/]")
+    console.print(f"[dim]Detected language: {detected_language}[/]")
+    console.print(f"[dim]Audio duration: {duration:.1f}s, Segments: {len(segment_list)}[/]")
+    console.print(f"[dim]Processing time: {elapsed_time:.1f}s ({speed_ratio:.1f}x realtime)[/]")
+
+    return output
+
+
+def _transcribe_faster_whisper(
+    audio_path: str,
+    model: Optional[Any],
+    model_size: str,
+    language: Optional[str],
+    translate: bool,
+    word_timestamps: bool,
+    beam_size: int,
+) -> Dict[str, Any]:
+    """Transcribe using faster-whisper backend."""
+    # Load model if not provided
+    if model is None:
+        model = load_model(model_size)
+
+    task = 'translate' if translate else 'transcribe'
+
+    start_time = time.time()
+
+    # First, get audio duration for progress tracking
+    segments, info = model.transcribe(
+        audio_path,
+        language=language,
+        task=task,
+        word_timestamps=word_timestamps,
+        beam_size=beam_size,
+        vad_filter=True,  # Filter out silence
+    )
+
+    duration = info.duration
+
+    # Convert generator to list with progress bar
+    segment_list = []
+    full_text = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        "[progress.percentage]{task.percentage:>3.0f}%",
+        "•",
+        TextColumn("[cyan]{task.completed:.1f}s[/] / [cyan]{task.total:.1f}s[/]"),
+        console=console,
+        transient=False
+    ) as progress:
+        task_id = progress.add_task(
+            description="Transcribing...",
+            total=duration
+        )
+
         for segment in segments:
             segment_dict = {
                 'id': segment.id,
@@ -123,28 +282,37 @@ def transcribe(
                 'end': segment.end,
                 'text': segment.text.strip(),
             }
-            
+
             if word_timestamps and segment.words:
                 segment_dict['words'] = [
                     {'word': w.word, 'start': w.start, 'end': w.end}
                     for w in segment.words
                 ]
-            
+
             segment_list.append(segment_dict)
             full_text.append(segment.text.strip())
-    
+
+            # Update progress based on segment end time
+            progress.update(task_id, completed=segment.end)
+
+    elapsed_time = time.time() - start_time
+    speed_ratio = duration / elapsed_time if elapsed_time > 0 else 0
+
     result = {
         'text': ' '.join(full_text),
         'segments': segment_list,
         'language': info.language,
         'language_probability': info.language_probability,
         'duration': info.duration,
+        'elapsed_time': elapsed_time,
+        'speed_ratio': speed_ratio,
     }
-    
+
     console.print(f"[bold green]✅ Transcription complete[/]")
     console.print(f"[dim]Detected language: {info.language} ({info.language_probability:.1%})[/]")
-    console.print(f"[dim]Duration: {info.duration:.1f}s, Segments: {len(segment_list)}[/]")
-    
+    console.print(f"[dim]Audio duration: {info.duration:.1f}s, Segments: {len(segment_list)}[/]")
+    console.print(f"[dim]Processing time: {elapsed_time:.1f}s ({speed_ratio:.1f}x realtime)[/]")
+
     return result
 
 
@@ -194,6 +362,33 @@ def to_vtt(segments: List[Dict]) -> str:
 def to_txt(segments: List[Dict]) -> str:
     """Convert segments to plain text."""
     return '\n'.join(seg['text'] for seg in segments)
+
+
+def srt_to_txt(srt_content: str) -> str:
+    """
+    Convert SRT content to plain text, removing all timestamps and sequence numbers.
+
+    Args:
+        srt_content: SRT file content as string
+
+    Returns:
+        Plain text without timestamps
+    """
+    import re
+    lines = []
+    for line in srt_content.strip().split('\n'):
+        line = line.strip()
+        # Skip empty lines
+        if not line:
+            continue
+        # Skip sequence numbers (just digits)
+        if line.isdigit():
+            continue
+        # Skip timestamp lines (00:00:00,000 --> 00:00:00,000)
+        if re.match(r'\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}', line):
+            continue
+        lines.append(line)
+    return '\n'.join(lines)
 
 
 def to_json(result: Dict) -> str:

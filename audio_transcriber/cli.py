@@ -15,18 +15,29 @@ from .transcriber import (
     save_transcription,
     load_model,
     MODEL_SIZES,
+    srt_to_txt,
+    USE_MLX,
+    is_apple_silicon,
+    has_mlx_whisper,
+    MLX_MODEL_MAP,
 )
 
 console = Console()
 
 
-@click.command()
+@click.group()
+def cli():
+    """Audio Transcriber - Download and transcribe audio with local Whisper."""
+    pass
+
+
+@cli.command('transcribe')
 @click.argument('source')
 @click.option(
     '--model', '-m',
-    default='medium',
+    default='large-v3-turbo',
     type=click.Choice(MODEL_SIZES),
-    help='Whisper model size (default: medium)'
+    help='Whisper model size (default: large-v3-turbo)'
 )
 @click.option(
     '--language', '-l',
@@ -37,12 +48,6 @@ console = Console()
     '--translate', '-t',
     is_flag=True,
     help='Translate to English'
-)
-@click.option(
-    '--format', '-f',
-    default='srt',
-    type=click.Choice(['srt', 'vtt', 'txt', 'json']),
-    help='Output format (default: srt)'
 )
 @click.option(
     '--output', '-o',
@@ -59,15 +64,27 @@ console = Console()
     is_flag=True,
     help='Show info without downloading or transcribing'
 )
+@click.option(
+    '--beam-size', '-b',
+    default=5,
+    type=int,
+    help='Beam size for decoding (1=fastest, 5=default)'
+)
+@click.option(
+    '--fast',
+    is_flag=True,
+    help='Fast mode: use large-v3-turbo model with beam_size=1'
+)
 def main(
     source: str,
     model: str,
     language: Optional[str],
     translate: bool,
-    format: str,
     output: Optional[str],
     keep_audio: bool,
-    dry_run: bool
+    dry_run: bool,
+    beam_size: int,
+    fast: bool,
 ):
     """
     Download and transcribe audio from YouTube, Podcast, or local files.
@@ -85,9 +102,24 @@ def main(
         # Use a specific model and output format
         python -m audio_transcriber "URL" --model large-v3 --format vtt
     """
+    # Detect platform and backend
+    is_mac = is_apple_silicon()
+    mlx_available = has_mlx_whisper()
+    backend = "mlx-whisper" if USE_MLX else "faster-whisper"
+
+    # Show model info
+    if USE_MLX:
+        model_display = MLX_MODEL_MAP.get(model, model)
+    else:
+        model_display = model
+
     console.print(Panel.fit(
         "[bold cyan]🎙️ Audio Transcriber[/]\n"
-        "[dim]Download & transcribe audio with local Whisper[/]",
+        "[dim]Download & transcribe audio with local Whisper[/]\n\n"
+        f"[dim]Platform:[/] {'Apple Silicon' if is_mac else 'Other'} | "
+        f"[dim]MLX:[/] {'✓' if mlx_available else '✗'} | "
+        f"[dim]Backend:[/] [bold]{backend}[/]\n"
+        f"[dim]Model:[/] [bold]{model_display}[/]",
         border_style="cyan"
     ))
     
@@ -127,30 +159,51 @@ def main(
         
         # Transcribe
         console.print("\n[bold]Step 2: Transcribing audio[/]")
-        
+
+        # Fast mode overrides
+        if fast:
+            model = 'large-v3-turbo'
+            beam_size = 1
+            console.print("[yellow]⚡ Fast mode: using large-v3-turbo with beam_size=1[/]")
+
         result = transcribe(
             audio_path,
             model_size=model,
             language=language,
-            translate=translate
+            translate=translate,
+            beam_size=beam_size,
         )
         
         # Save transcription
         console.print("\n[bold]Step 3: Saving transcription[/]")
-        
+
         # Generate output filename
         base_name = Path(audio_path).stem
         output_path = os.path.join(output, base_name)
-        
-        saved_path = save_transcription(result, output_path, format)
-        
+
+        # Always save SRT first
+        saved_srt = save_transcription(result, output_path, 'srt')
+
+        # Then convert to TXT
+        txt_path = str(Path(output_path).with_suffix('.txt'))
+        with open(saved_srt, 'r', encoding='utf-8') as f:
+            srt_content = f.read()
+        txt_content = srt_to_txt(srt_content)
+        with open(txt_path, 'w', encoding='utf-8') as f:
+            f.write(txt_content)
+        console.print(f"[bold green]💾 Saved:[/] {txt_path}")
+
         # Show summary
         console.print("\n" + "─" * 50)
+        elapsed = result.get('elapsed_time', 0)
+        speed = result.get('speed_ratio', 0)
         console.print(Panel(
             f"[bold green]✅ Transcription complete![/]\n\n"
-            f"📁 Output: [cyan]{saved_path}[/]\n"
+            f"📁 SRT: [cyan]{saved_srt}[/]\n"
+            f"📁 TXT: [cyan]{txt_path}[/]\n"
             f"🌐 Language: {result['language']}\n"
-            f"⏱️  Duration: {result['duration']:.1f}s\n"
+            f"⏱️  Audio duration: {result['duration']:.1f}s\n"
+            f"🚀 Processing time: {elapsed:.1f}s ({speed:.1f}x realtime)\n"
             f"📝 Segments: {len(result['segments'])}",
             title="Summary",
             border_style="green"
@@ -176,5 +229,37 @@ def main(
             console.print(f"[dim]🗑️  Cleaned up temporary audio file[/]")
 
 
+@cli.command('strip-srt')
+@click.argument('srt_file')
+@click.option(
+    '--output', '-o',
+    default=None,
+    help='Output file path (default: same name with .txt extension)'
+)
+def strip_srt(srt_file: str, output: Optional[str]):
+    """
+    Convert SRT file to plain text, removing timestamps and sequence numbers.
+
+    Example:
+        python -m audio_transcriber strip-srt subtitle.srt
+    """
+    if not os.path.exists(srt_file):
+        console.print(f"[bold red]❌ File not found:[/] {srt_file}")
+        sys.exit(1)
+
+    with open(srt_file, 'r', encoding='utf-8') as f:
+        srt_content = f.read()
+
+    txt_content = srt_to_txt(srt_content)
+
+    if output is None:
+        output = str(Path(srt_file).with_suffix('.txt'))
+
+    with open(output, 'w', encoding='utf-8') as f:
+        f.write(txt_content)
+
+    console.print(f"[bold green]✅ Converted:[/] {output}")
+
+
 if __name__ == '__main__':
-    main()
+    cli()

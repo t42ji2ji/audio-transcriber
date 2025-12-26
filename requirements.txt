@@ -2,3 +2,7 @@ yt-dlp>=2024.1.0
 faster-whisper>=1.0.0
 click>=8.0.0
 rich>=13.0.0
+
+# Optional: For Apple Silicon (M1/M2/M3/M4) - much faster on Mac
+# pip install mlx-whisper
+# mlx-whisper>=0.4.0
