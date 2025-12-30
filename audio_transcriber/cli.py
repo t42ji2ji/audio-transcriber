@@ -31,7 +31,7 @@ def cli():
     pass
 
 
-@cli.command('transcribe')
+@click.command()
 @click.argument('source')
 @click.option(
     '--model', '-m',
@@ -75,7 +75,7 @@ def cli():
     is_flag=True,
     help='Fast mode: use large-v3-turbo model with beam_size=1'
 )
-def main(
+def aits(
     source: str,
     model: str,
     language: Optional[str],
@@ -88,19 +88,16 @@ def main(
 ):
     """
     Download and transcribe audio from YouTube, Podcast, or local files.
-    
+
     SOURCE can be a URL (YouTube, etc.) or a local audio file path.
-    
+
     Examples:
-    
-        # Transcribe a YouTube video
-        python -m audio_transcriber "https://youtube.com/watch?v=..."
-        
-        # Transcribe with translation to English
-        python -m audio_transcriber "URL" --translate
-        
-        # Use a specific model and output format
-        python -m audio_transcriber "URL" --model large-v3 --format vtt
+
+        aits "https://youtube.com/watch?v=..."
+
+        aits "URL" --translate
+
+        aits "URL" --model large-v3
     """
     # Detect platform and backend
     is_mac = is_apple_silicon()

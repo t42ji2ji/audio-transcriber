@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audio-transcriber"
+version = "0.1.0"
+description = "Download and transcribe audio with local Whisper"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "yt-dlp>=2024.1.0",
+    "faster-whisper>=1.0.0",
+    "click>=8.0.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+mlx = ["mlx-whisper>=0.4.0"]
+
+[project.scripts]
+aits = "audio_transcriber.cli:aits"
+
+[tool.setuptools.packages.find]
+where = ["."]

@@ -1,0 +1,2 @@
+[console_scripts]
+aits = audio_transcriber.cli:aits

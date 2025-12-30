@@ -1,0 +1,13 @@
+README.md
+pyproject.toml
+audio_transcriber/__init__.py
+audio_transcriber/__main__.py
+audio_transcriber/cli.py
+audio_transcriber/downloader.py
+audio_transcriber/transcriber.py
+audio_transcriber.egg-info/PKG-INFO
+audio_transcriber.egg-info/SOURCES.txt
+audio_transcriber.egg-info/dependency_links.txt
+audio_transcriber.egg-info/entry_points.txt
+audio_transcriber.egg-info/requires.txt
+audio_transcriber.egg-info/top_level.txt
