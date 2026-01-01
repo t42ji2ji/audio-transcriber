@@ -3,7 +3,9 @@
     "allow": [
       "Bash(python -m audio_transcriber strip-srt:*)",
       "Bash(yt-dlp --version:*)",
-      "Bash(yt-dlp:*)"
+      "Bash(yt-dlp:*)",
+      "Bash(python -m audio_transcriber:*)",
+      "Bash(aits:*)"
     ]
   }
 }

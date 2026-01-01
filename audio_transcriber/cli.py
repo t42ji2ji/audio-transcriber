@@ -135,7 +135,8 @@ def aits(
                 console.print("\n[bold]📋 URL Info:[/]")
                 info = get_audio_info(source)
                 console.print(f"  Title: {info['title']}")
-                console.print(f"  Duration: {info['duration'] // 60}:{info['duration'] % 60:02d}")
+                duration = int(info['duration'])
+                console.print(f"  Duration: {duration // 60}:{duration % 60:02d}")
                 console.print(f"  Uploader: {info['uploader']}")
                 return
             
