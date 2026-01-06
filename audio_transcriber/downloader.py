@@ -57,6 +57,8 @@ def download_audio(
         'quiet': False,
         'no_warnings': False,
         'extract_flat': False,
+        # Enable remote JS challenge solver for YouTube
+        'extractor_args': {'youtube': {'remote_components': ['ejs:github']}},
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'wav' if not keep_original else 'mp3',
@@ -129,10 +131,10 @@ def download_audio(
 def get_audio_info(url: str) -> dict:
     """
     Get information about an audio/video without downloading.
-    
+
     Args:
         url: The URL to get info from
-    
+
     Returns:
         Dictionary with title, duration, etc.
     """
@@ -140,6 +142,8 @@ def get_audio_info(url: str) -> dict:
         'quiet': True,
         'no_warnings': True,
         'extract_flat': False,
+        # Enable remote JS challenge solver for YouTube
+        'extractor_args': {'youtube': {'remote_components': ['ejs:github']}},
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:

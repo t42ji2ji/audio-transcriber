@@ -8,8 +8,67 @@ from typing import Optional, List, Dict, Any, Union
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.panel import Panel
 
 console = Console()
+
+
+def _get_hf_cache_dir() -> Path:
+    """Get the HuggingFace cache directory."""
+    # Check environment variables first
+    if os.environ.get('HF_HUB_CACHE'):
+        return Path(os.environ['HF_HUB_CACHE'])
+    if os.environ.get('HF_HOME'):
+        return Path(os.environ['HF_HOME']) / 'hub'
+    # Default location
+    return Path.home() / '.cache' / 'huggingface' / 'hub'
+
+
+def _is_model_cached(repo_id: str) -> bool:
+    """Check if a HuggingFace model is already cached locally."""
+    cache_dir = _get_hf_cache_dir()
+    # HuggingFace cache uses format: models--{org}--{repo}
+    model_cache_name = f"models--{repo_id.replace('/', '--')}"
+    model_cache_path = cache_dir / model_cache_name
+
+    # Check if the directory exists and has content
+    if model_cache_path.exists():
+        # Check for snapshots directory which indicates a completed download
+        snapshots_dir = model_cache_path / 'snapshots'
+        if snapshots_dir.exists() and any(snapshots_dir.iterdir()):
+            return True
+    return False
+
+
+def _get_model_size_mb(model_size: str) -> int:
+    """Get approximate model size in MB."""
+    sizes = {
+        'tiny': 75,
+        'base': 140,
+        'small': 460,
+        'medium': 1500,
+        'large-v3-turbo': 1500,
+        'distil-large-v3': 1500,
+    }
+    return sizes.get(model_size, 1500)
+
+
+def _show_download_notice(model_size: str, repo_id: str):
+    """Show a notice that the model will be downloaded."""
+    size_mb = _get_model_size_mb(model_size)
+    size_str = f"{size_mb} MB" if size_mb < 1000 else f"{size_mb / 1000:.1f} GB"
+
+    console.print()
+    console.print(Panel(
+        f"[bold yellow]⬇️  First-time model download[/]\n\n"
+        f"Model [cyan]{repo_id}[/] is not cached locally.\n"
+        f"Downloading [bold]{size_str}[/] (one-time only).\n\n"
+        f"[dim]The model will be cached at:\n"
+        f"~/.cache/huggingface/hub/[/]",
+        title="📦 Model Download",
+        border_style="yellow"
+    ))
+    console.print()
 
 # Detect if running on Apple Silicon
 def is_apple_silicon() -> bool:
@@ -47,6 +106,16 @@ MLX_MODEL_MAP = {
     'medium': 'mlx-community/whisper-medium',
     'large-v3-turbo': 'mlx-community/whisper-large-v3-turbo',
     'distil-large-v3': 'mlx-community/distil-whisper-large-v3',
+}
+
+# faster-whisper model mapping (model_size -> HuggingFace repo)
+FASTER_WHISPER_MODEL_MAP = {
+    'tiny': 'Systran/faster-whisper-tiny',
+    'base': 'Systran/faster-whisper-base',
+    'small': 'Systran/faster-whisper-small',
+    'medium': 'Systran/faster-whisper-medium',
+    'large-v3-turbo': 'mobiuslabsgmbh/faster-whisper-large-v3-turbo',
+    'distil-large-v3': 'Systran/faster-distil-whisper-large-v3',
 }
 
 
@@ -90,6 +159,11 @@ def load_model(
         compute_type = 'int8' if device == 'cpu' else 'float16'
 
     console.print(f"[dim]Backend: faster-whisper, Device: {device}, Compute type: {compute_type}[/]")
+
+    # Check if model needs to be downloaded
+    repo_id = FASTER_WHISPER_MODEL_MAP.get(model_size, f'Systran/faster-whisper-{model_size}')
+    if not _is_model_cached(repo_id):
+        _show_download_notice(model_size, repo_id)
 
     model = WhisperModel(
         model_size,
@@ -171,6 +245,10 @@ def _transcribe_mlx(
 
     mlx_model = MLX_MODEL_MAP.get(model_size, MLX_MODEL_MAP['large-v3-turbo'])
     console.print(f"[dim]Backend: mlx-whisper, Model: {mlx_model}[/]")
+
+    # Check if model needs to be downloaded
+    if not _is_model_cached(mlx_model):
+        _show_download_notice(model_size, mlx_model)
 
     task = 'translate' if translate else 'transcribe'
 

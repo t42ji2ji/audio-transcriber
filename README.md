@@ -14,7 +14,19 @@ brew install ffmpeg
 sudo apt install ffmpeg
 ```
 
-### 2. 安裝 Python 依賴
+### 2. 安裝 Deno（YouTube 下載需要）
+
+YouTube 使用 JavaScript 挑戰來保護影片，yt-dlp 需要 Deno 來解決這些挑戰。
+
+```bash
+# macOS
+brew install deno
+
+# 其他系統
+curl -fsSL https://deno.land/install.sh | sh
+```
+
+### 3. 安裝 Python 依賴
 
 ```bash
 pip install -r requirements.txt

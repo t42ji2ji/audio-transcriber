@@ -5,7 +5,9 @@
       "Bash(yt-dlp --version:*)",
       "Bash(yt-dlp:*)",
       "Bash(python -m audio_transcriber:*)",
-      "Bash(aits:*)"
+      "Bash(aits:*)",
+      "Bash(python -c:*)",
+      "Bash(python:*)"
     ]
   }
 }
