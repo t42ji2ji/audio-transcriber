@@ -88,7 +88,8 @@ def download_audio(
             info = ydl.extract_info(url, download=False)
 
             console.print(f"[dim]Title: {info.get('title', 'Unknown')}[/]")
-            console.print(f"[dim]Duration: {info.get('duration', 0) // 60}:{info.get('duration', 0) % 60:02d}[/]")
+            duration = int(info.get('duration', 0))
+            console.print(f"[dim]Duration: {duration // 60}:{duration % 60:02d}[/]")
 
             # Download and get the actual filename
             ydl.download([url])
