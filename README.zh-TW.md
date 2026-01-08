@@ -41,6 +41,8 @@ aits "https://www.youtube.com/watch?v=VIDEO_ID"
 
 使用 `--fast` 模式可更快，但準確度略降。
 
+> **注意：** 首次執行需下載模型（約 1.5GB），會花幾分鐘。之後會使用快取，直接達到上述速度。
+
 ## 安裝
 
 ```bash

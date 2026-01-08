@@ -41,6 +41,8 @@ On Apple Silicon Mac (M1/M2/M3) with default model:
 
 Use `--fast` mode for even faster processing with slightly lower accuracy.
 
+> **Note:** First run downloads the model (~1.5GB), which takes a few minutes. Subsequent runs use the cached model.
+
 ## Installation
 
 ```bash
