@@ -1,92 +1,127 @@
 # Audio Transcriber
 
-從 YouTube 或 Podcast 下載音頻，並使用本地 Whisper 模型進行語音轉錄，提取字幕。
-
-## 安裝
-
-### 1. 安裝 FFmpeg（必需）
+One command to turn any video into text.
 
 ```bash
-# macOS
-brew install ffmpeg
-
-# Ubuntu/Debian
-sudo apt install ffmpeg
+aits "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
-### 2. 安裝 Deno（YouTube 下載需要）
+## Why This Tool?
 
-YouTube 使用 JavaScript 挑戰來保護影片，yt-dlp 需要 Deno 來解決這些挑戰。
+| Feature          | Description                                                       |
+| ---------------- | ----------------------------------------------------------------- |
+| **Fast**         | ~1 min to transcribe 10 min audio on Apple Silicon (10x realtime) |
+| **Accurate**     | OpenAI Whisper large-v3-turbo, supports 99 languages              |
+| **Wide Support** | YouTube, Bilibili, Twitter, TikTok, and 1000+ platforms           |
+| **Free**         | Runs entirely local, no API costs, no usage limits                |
+| **Private**      | Audio never leaves your machine, fully offline                    |
+
+## Supported Sources
+
+**Online Platforms** (via yt-dlp):
+- Video: YouTube, Bilibili, Vimeo, Dailymotion, TikTok
+- Social: Twitter/X, Instagram, Facebook, Reddit
+- Live: Twitch, Kick (VODs)
+- Music: SoundCloud, Bandcamp
+- Podcast: Apple Podcasts,  RSS Feeds, mp3 files
+
+**Local Files**: mp3, wav, m4a, mp4, mkv, and more
+
+Full list: [yt-dlp supported sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)
+
+## Speed Reference
+
+On Apple Silicon Mac (M1/M2/M3) with default model:
+
+| Audio Length | Processing Time | Speed |
+| ------------ | --------------- | ----- |
+| 10 min       | ~1 min          | 10x   |
+| 1 hour       | ~6 min          | 10x   |
+| 2 hours      | ~12 min         | 10x   |
+
+Use `--fast` mode for 2-3x faster processing with slightly lower accuracy.
+
+## Installation
 
 ```bash
-# macOS
-brew install deno
-
-# 其他系統
-curl -fsSL https://deno.land/install.sh | sh
+pip install audio-transcriber
 ```
 
-### 3. 安裝 Python 依賴
+That's it. The tool auto-installs dependencies (ffmpeg, deno, mlx-whisper) as needed.
+
+## Usage
 
 ```bash
-pip install -r requirements.txt
+# Simple: just paste a URL
+aits "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# Transcribe local file
+aits audio.mp3
+
+# Fast mode (trade accuracy for speed)
+aits "URL" --fast
+
+# Japanese video translated to English
+aits "URL" --language ja --translate
+
+# Output SRT subtitles (for video editors)
+aits "URL" --srt
 ```
 
-## 使用方法
+### All Options
 
-### 基本使用
+| Option         | Short | Description                                  |
+| -------------- | ----- | -------------------------------------------- |
+| `--model`      | `-m`  | Model size (default: large-v3-turbo)         |
+| `--language`   | `-l`  | Source language (e.g., en, ja, zh)           |
+| `--translate`  | `-t`  | Translate to English                         |
+| `--output`     | `-o`  | Output directory (default: ./output)         |
+| `--fast`       |       | Fast mode (turbo + beam_size=1)              |
+| `--srt`        |       | Also output SRT subtitle file                |
+| `--keep-audio` |       | Keep downloaded audio file                   |
+| `--dry-run`    |       | Show info only, don't download or transcribe |
+
+## Model Selection
+
+| Model             | Speed | Accuracy | Recommended For                         |
+| ----------------- | ----- | -------- | --------------------------------------- |
+| `large-v3-turbo`  | ★★★★  | ★★★★★    | **Default**, best speed/quality balance |
+| `distil-large-v3` | ★★★★  | ★★★★     | Fast high-quality alternative           |
+| `medium`          | ★★★   | ★★★★     | Lower memory usage                      |
+| `small`           | ★★★★  | ★★★      | Quick drafts                            |
+| `base`            | ★★★★★ | ★★       | Very fast, lower quality                |
+| `tiny`            | ★★★★★ | ★        | Testing only                            |
+
+First run downloads the model (~1.5GB), then uses cache.
+
+## System Requirements
+
+- Python 3.9+
+- FFmpeg (audio processing)
+- Deno (required for YouTube downloads)
+
+### Platform Support
+
+| Platform          | Backend        | Notes                    |
+| ----------------- | -------------- | ------------------------ |
+| Apple Silicon Mac | mlx-whisper    | GPU accelerated, fastest |
+| Intel Mac         | faster-whisper | CPU                      |
+| Linux             | faster-whisper | CUDA GPU supported       |
+| Windows           | faster-whisper | CUDA GPU supported       |
+
+## Output Formats
+
+- **txt**: Plain text (default)
+- **srt**: SubRip subtitles, works with Premiere, Final Cut, DaVinci Resolve, etc.
+
+## Other Tools
+
+### SRT to Plain Text
 
 ```bash
-# 轉錄 YouTube 影片
-python -m audio_transcriber "https://www.youtube.com/watch?v=VIDEO_ID"
-
-# 轉錄本地音頻檔案
-python -m audio_transcriber audio.mp3
+python -m audio_transcriber strip-srt subtitle.srt
 ```
 
-### 進階選項
+---
 
-```bash
-# 使用較大的模型（更準確）
-python -m audio_transcriber "URL" --model large-v3
-
-# 翻譯成英文
-python -m audio_transcriber "URL" --translate
-
-# 指定源語言（跳過自動檢測）
-python -m audio_transcriber "URL" --language ja
-
-# 輸出為 SRT 字幕格式
-python -m audio_transcriber "URL" --format srt
-
-# 指定輸出目錄
-python -m audio_transcriber "URL" --output ./subtitles
-```
-
-### 可用模型
-
-| 模型     | 大小  | 記憶體需求 | 相對速度   |
-| -------- | ----- | ---------- | ---------- |
-| tiny     | 39M   | ~1GB       | 最快       |
-| base     | 74M   | ~1GB       | 快         |
-| small    | 244M  | ~2GB       | 中等       |
-| medium   | 769M  | ~5GB       | 慢         |
-| large-v3 | 1550M | ~10GB      | 最慢但最準 |
-
-## 輸出格式
-
-- **txt**: 純文字（預設）
-- **srt**: SubRip 字幕格式
-- **vtt**: WebVTT 字幕格式
-- **json**: 包含時間戳的 JSON 格式
-
-## 範例
-
-```bash
-# 轉錄日文 YouTube 影片並翻譯成英文
-python -m audio_transcriber "https://www.youtube.com/watch?v=xxx" \
-    --language ja \
-    --translate \
-    --format srt \
-    --model medium
-```
+[中文版 README](README.zh-TW.md)

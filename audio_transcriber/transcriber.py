@@ -74,7 +74,8 @@ def _show_download_notice(model_size: str, repo_id: str):
 def is_apple_silicon() -> bool:
     return platform.system() == 'Darwin' and platform.machine() == 'arm64'
 
-# Check if mlx-whisper is available
+
+# Check if mlx-whisper is available (re-check each time, in case it was just installed)
 def has_mlx_whisper() -> bool:
     try:
         import mlx_whisper
@@ -82,11 +83,14 @@ def has_mlx_whisper() -> bool:
     except ImportError:
         return False
 
-# Determine which backend to use
-USE_MLX = is_apple_silicon() and has_mlx_whisper()
 
-if not USE_MLX:
-    from faster_whisper import WhisperModel
+def should_use_mlx() -> bool:
+    """Determine if MLX backend should be used (checked dynamically)."""
+    return is_apple_silicon() and has_mlx_whisper()
+
+
+# For backwards compatibility - but prefer should_use_mlx() for dynamic check
+USE_MLX = should_use_mlx()
 
 # Available model sizes (ordered by speed, fastest first)
 MODEL_SIZES = [
@@ -139,7 +143,10 @@ def load_model(
         console.print(f"[yellow]⚠️  Unknown model size '{model_size}', using 'large-v3-turbo'[/]")
         model_size = 'large-v3-turbo'
 
-    if USE_MLX:
+    # Check dynamically (in case mlx was just installed)
+    use_mlx = should_use_mlx()
+
+    if use_mlx:
         # mlx-whisper loads model during transcribe, no preloading needed
         console.print(f"[bold blue]🔄 Using MLX backend:[/] {model_size}")
         console.print(f"[dim]Backend: mlx-whisper (Apple Silicon optimized)[/]")
@@ -164,6 +171,9 @@ def load_model(
     repo_id = FASTER_WHISPER_MODEL_MAP.get(model_size, f'Systran/faster-whisper-{model_size}')
     if not _is_model_cached(repo_id):
         _show_download_notice(model_size, repo_id)
+
+    # Import here to allow dynamic backend selection
+    from faster_whisper import WhisperModel
 
     model = WhisperModel(
         model_size,
@@ -213,7 +223,8 @@ def transcribe(
 
     console.print(f"[bold blue]🎤 Transcribing:[/] {audio_path}")
 
-    if USE_MLX:
+    # Check dynamically (in case mlx was just installed)
+    if should_use_mlx():
         return _transcribe_mlx(
             audio_path=audio_path,
             model_size=model_size,

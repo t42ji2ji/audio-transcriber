@@ -9,6 +9,7 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 
+from .deps import check_and_exit_if_missing, check_mlx_recommendation
 from .downloader import download_audio, is_url, get_audio_info
 from .transcriber import (
     transcribe,
@@ -16,9 +17,8 @@ from .transcriber import (
     load_model,
     MODEL_SIZES,
     srt_to_txt,
-    USE_MLX,
     is_apple_silicon,
-    has_mlx_whisper,
+    should_use_mlx,
     MLX_MODEL_MAP,
 )
 
@@ -75,6 +75,11 @@ def cli():
     is_flag=True,
     help='Fast mode: use large-v3-turbo model with beam_size=1'
 )
+@click.option(
+    '--srt',
+    is_flag=True,
+    help='Also save SRT file with timestamps'
+)
 def aits(
     source: str,
     model: str,
@@ -85,6 +90,7 @@ def aits(
     dry_run: bool,
     beam_size: int,
     fast: bool,
+    srt: bool,
 ):
     """
     Download and transcribe audio from YouTube, Podcast, or local files.
@@ -99,13 +105,18 @@ def aits(
 
         aits "URL" --model large-v3
     """
-    # Detect platform and backend
+    # Check system dependencies
+    need_deno = is_url(source)
+    check_and_exit_if_missing(need_deno=need_deno)
+    check_mlx_recommendation()
+
+    # Detect platform and backend (check dynamically after potential install)
     is_mac = is_apple_silicon()
-    mlx_available = has_mlx_whisper()
-    backend = "mlx-whisper" if USE_MLX else "faster-whisper"
+    use_mlx = should_use_mlx()
+    backend = "mlx-whisper" if use_mlx else "faster-whisper"
 
     # Show model info
-    if USE_MLX:
+    if use_mlx:
         model_display = MLX_MODEL_MAP.get(model, model)
     else:
         model_display = model
@@ -114,7 +125,7 @@ def aits(
         "[bold cyan]🎙️ Audio Transcriber[/]\n"
         "[dim]Download & transcribe audio with local Whisper[/]\n\n"
         f"[dim]Platform:[/] {'Apple Silicon' if is_mac else 'Other'} | "
-        f"[dim]MLX:[/] {'✓' if mlx_available else '✗'} | "
+        f"[dim]MLX:[/] {'✓' if use_mlx else '✗'} | "
         f"[dim]Backend:[/] [bold]{backend}[/]\n"
         f"[dim]Model:[/] [bold]{model_display}[/]",
         border_style="cyan"
@@ -123,6 +134,7 @@ def aits(
     # Set default output directory
     if output is None:
         output = os.path.join(os.getcwd(), 'output')
+
     os.makedirs(output, exist_ok=True)
     
     audio_path = None
@@ -179,26 +191,26 @@ def aits(
         base_name = Path(audio_path).stem
         output_path = os.path.join(output, base_name)
 
-        # Always save SRT first
-        saved_srt = save_transcription(result, output_path, 'srt')
-
-        # Then convert to TXT
+        # Save TXT (no timestamps)
         txt_path = str(Path(output_path).with_suffix('.txt'))
-        with open(saved_srt, 'r', encoding='utf-8') as f:
-            srt_content = f.read()
-        txt_content = srt_to_txt(srt_content)
-        with open(txt_path, 'w', encoding='utf-8') as f:
-            f.write(txt_content)
-        console.print(f"[bold green]💾 Saved:[/] {txt_path}")
+        save_transcription(result, txt_path, 'txt')
+
+        # Optionally save SRT (with timestamps)
+        srt_path = None
+        if srt:
+            srt_path = str(Path(output_path).with_suffix('.srt'))
+            save_transcription(result, srt_path, 'srt')
 
         # Show summary
         console.print("\n" + "─" * 50)
         elapsed = result.get('elapsed_time', 0)
         speed = result.get('speed_ratio', 0)
+        summary_files = f"📁 TXT: [cyan]{txt_path}[/]"
+        if srt_path:
+            summary_files += f"\n📁 SRT: [cyan]{srt_path}[/]"
         console.print(Panel(
             f"[bold green]✅ Transcription complete![/]\n\n"
-            f"📁 SRT: [cyan]{saved_srt}[/]\n"
-            f"📁 TXT: [cyan]{txt_path}[/]\n"
+            f"{summary_files}\n"
             f"🌐 Language: {result['language']}\n"
             f"⏱️  Audio duration: {result['duration']:.1f}s\n"
             f"🚀 Processing time: {elapsed:.1f}s ({speed:.1f}x realtime)\n"
