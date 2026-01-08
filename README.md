@@ -10,7 +10,7 @@ aits "https://www.youtube.com/watch?v=VIDEO_ID"
 
 | Feature          | Description                                                       |
 | ---------------- | ----------------------------------------------------------------- |
-| **Fast**         | ~1 min to transcribe 10 min audio on Apple Silicon (10x realtime) |
+| **Fast**         | ~30s to transcribe 10 min audio on Apple Silicon (20x realtime)   |
 | **Accurate**     | OpenAI Whisper large-v3-turbo, supports 99 languages              |
 | **Wide Support** | YouTube, Bilibili, Twitter, TikTok, and 1000+ platforms           |
 | **Free**         | Runs entirely local, no API costs, no usage limits                |
@@ -35,11 +35,11 @@ On Apple Silicon Mac (M1/M2/M3) with default model:
 
 | Audio Length | Processing Time | Speed |
 | ------------ | --------------- | ----- |
-| 10 min       | ~1 min          | 10x   |
-| 1 hour       | ~6 min          | 10x   |
-| 2 hours      | ~12 min         | 10x   |
+| 10 min       | ~0.5 min        | 20x   |
+| 60 min       | ~3 min          | 20x   |
+| 120 min      | ~6 min          | 20x   |
 
-Use `--fast` mode for 2-3x faster processing with slightly lower accuracy.
+Use `--fast` mode for even faster processing with slightly lower accuracy.
 
 ## Installation
 

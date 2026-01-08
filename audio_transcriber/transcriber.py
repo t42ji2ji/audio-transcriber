@@ -263,15 +263,56 @@ def _transcribe_mlx(
 
     task = 'translate' if translate else 'transcribe'
 
+    # Get audio duration first for progress estimation
+    import mlx_whisper.audio as mlx_audio
+    audio_array = mlx_audio.load_audio(audio_path)
+    total_duration = len(audio_array) / 16000  # 16kHz sample rate
+
+    # Estimate processing time based on typical 20x realtime speed for MLX
+    estimated_time = total_duration / 20
+
     start_time = time.time()
-    with console.status("[bold blue]Transcribing with MLX...[/]"):
-        result = mlx_whisper.transcribe(
-            audio_path,
-            path_or_hf_repo=mlx_model,
-            language=language,
-            task=task,
-            word_timestamps=word_timestamps,
-        )
+
+    import threading
+    from rich.live import Live
+    from rich.text import Text
+
+    result_holder = [None]
+    error_holder = [None]
+
+    def do_transcribe():
+        try:
+            result_holder[0] = mlx_whisper.transcribe(
+                audio_path,
+                path_or_hf_repo=mlx_model,
+                language=language,
+                task=task,
+                word_timestamps=word_timestamps,
+            )
+        except Exception as e:
+            error_holder[0] = e
+
+    transcribe_thread = threading.Thread(target=do_transcribe)
+    transcribe_thread.start()
+
+    with Live(console=console, refresh_per_second=4, transient=True) as live:
+        while transcribe_thread.is_alive():
+            elapsed = time.time() - start_time
+            # Estimate progress based on elapsed time vs estimated time
+            progress_pct = min(99, (elapsed / estimated_time) * 100) if estimated_time > 0 else 0
+            progress_bar = "█" * int(progress_pct / 5) + "░" * (20 - int(progress_pct / 5))
+            live.update(Text(
+                f"⏳ Transcribing {total_duration:.0f}s audio... [{progress_bar}] ~{progress_pct:.0f}% ({elapsed:.1f}s)",
+                style="bold blue"
+            ))
+            time.sleep(0.25)
+
+    transcribe_thread.join()
+
+    if error_holder[0]:
+        raise error_holder[0]
+
+    result = result_holder[0]
     elapsed_time = time.time() - start_time
 
     # Normalize result format
